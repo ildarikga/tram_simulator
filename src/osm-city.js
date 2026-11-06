@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {project} from './rail-network.js';
+import {roadWidths} from './traffic.js';
 export function buildGeographicCity(data){
  const group=new T.Group();group.name='Казань — геометрия OpenStreetMap';
  const batches={building:[],water:[],landcover:[],road:[],tram:[]};let buildings=0,roads=0;
@@ -15,7 +16,7 @@ export function buildGeographicCity(data){
   }else if(p.layer==='transportation'&&['LineString','MultiLineString'].includes(g.type)){
    const lines=g.type==='LineString'?[g.coordinates]:g.coordinates;
    if(p.subclass==='tram'){for(const line of lines)strip(line,4,.25,batches.tram);}
-   else if(!['rail','transit','ferry','pier'].includes(p.class)){const width={motorway:17,trunk:14,primary:12,secondary:10,tertiary:8,minor:6,service:4,path:2}[p.class]||4;for(const line of lines)strip(line,width,.12,batches.road);roads++;}
+   else if(!['rail','transit','ferry','pier'].includes(p.class)){const width=roadWidths[p.class]||4;for(const line of lines)strip(line,width,.12,batches.road);roads++;}
   }
  }
  const materials={building:new T.MeshStandardMaterial({vertexColors:true,roughness:.9}),water:new T.MeshStandardMaterial({color:'#84b1b1',roughness:.55,side:T.DoubleSide}),landcover:new T.MeshStandardMaterial({color:'#a3b78e',side:T.DoubleSide}),road:new T.MeshStandardMaterial({color:'#bebcaf',side:T.DoubleSide}),tram:new T.MeshStandardMaterial({color:'#63756b',side:T.DoubleSide})};

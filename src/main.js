@@ -1,6 +1,7 @@
 import './style.css';
 import { trams, routes, locations, routePoints } from './data.js';
 import { createWorld } from './scene.js';
+import {approachSignal} from './traffic-signals.js';
 
 const $=s=>document.querySelector(s);
 let selected=trams[5],route=routes[4],running=false,paused=false,speed=0,distance=0,doors=false,throttle=0,elapsed=0,night=false,cameraMode='orbit';
@@ -41,7 +42,7 @@ function renderRouteInfo(){
 }
 renderRouteInfo();
 $('#stop-list').onclick=()=>{openDialog('<div class="eyebrow">ТВОЙ МАРШРУТ</div><h2 id="stops-heading"></h2><p>Названия и расположение остановок взяты из карты. Показаны остановки рядом с выбранной трассой.</p><ol class="route-stop-list"></ol>');$('#stops-heading').textContent=`Маршрут ${route.number}`;for(const stop of world?.routeStops||[]){const li=document.createElement('li');li.textContent=stop.name;$('.route-stop-list').append(li);}};
-function reset(){running=false;paused=false;speed=distance=throttle=elapsed=0;doors=false;$('#throttle').value=0;$('.drive-hud').hidden=true;$('#drive-controls').hidden=true;$('#start').textContent='Отправиться в путь ↗';$('#pause').textContent='Ⅱ';$('#doors').innerHTML='Открыть двери <kbd>E</kbd>';}
+function reset(){world?.resetSignals();running=false;paused=false;speed=distance=throttle=elapsed=0;doors=false;$('#throttle').value=0;$('.drive-hud').hidden=true;$('#drive-controls').hidden=true;$('#start').textContent='Отправиться в путь ↗';$('#pause').textContent='Ⅱ';$('#doors').innerHTML='Открыть двери <kbd>E</kbd>';}
 function chooseRoute(r){try{const points=routePoints(r.stops);if(points.length<2)throw Error('Выбери две разные остановки');reset();world?.setRoute(r.stops);route=r;renderRoutes();renderRouteInfo();$('#route-hint').textContent=geographicNetwork?'Пути OSM · трасса номера предварительная':'Игровая схема · не реальный маршрут';return true;}catch(error){notify(error.message);return false;}}
 $('#route-select').onchange=e=>chooseRoute([...routes,...customRoutes][Number(e.target.value)]);
 $('#route-cards').onclick=e=>{const c=e.target.closest('[data-route]');if(c)chooseRoute([...routes,...customRoutes][Number(c.dataset.route)]);};
@@ -61,9 +62,30 @@ function horn(){try{const ctx=new AudioContext();const gain=ctx.createGain();gai
 $('#horn').onclick=horn;
 window.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||$('#dialog').open)return;const key=e.code;if(['KeyW','ArrowUp','KeyS','ArrowDown','Space'].includes(key))e.preventDefault();keys.add(key);if(!e.repeat&&key==='KeyE')toggleDoors();if(!e.repeat&&key==='KeyH')horn();if(!e.repeat&&key==='Space'&&running)$('#pause').click();});
 window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();braking=false;throttle=0;$('#throttle').value=0;});
-let last=performance.now();function tick(now){const dt=Math.min((now-last)/1000,.08);last=now;if(running&&!paused){elapsed+=dt;if(keys.has('KeyW')||keys.has('ArrowUp')){throttle=Math.min(1,throttle+dt*.6);$('#throttle').value=throttle*100;}const brake=braking||keys.has('KeyS')||keys.has('ArrowDown');if(brake){throttle=0;$('#throttle').value=0;}speed=Math.max(0,Math.min(16.67,speed+((doors?0:throttle*1.15)-.045-(brake?2.7:0))*dt));if(doors)speed=0;distance+=speed*dt;if(distance>=world.length){distance=world.length;speed=throttle=0;$('#throttle').value=0;$('#trip-status').textContent='Конечная · поездка завершена';}else $('#trip-status').textContent=doors?'Двери открыты':`Пройдено ${(distance/1000).toFixed(2)} км · ${Math.floor(elapsed/60)}:${String(Math.floor(elapsed%60)).padStart(2,'0')}`;$('#speed').textContent=Math.round(speed*3.6);$('#progress').style.width=`${distance/world.length*100}%`;}world?.update(distance,doors);requestAnimationFrame(tick);}requestAnimationFrame(tick);
+let last=performance.now();
+function tick(now){
+ const dt=Math.min((now-last)/1000,.08);last=now;world?.step(dt,paused);
+ if(running&&!paused){
+  elapsed+=dt;
+  if(keys.has('KeyW')||keys.has('ArrowUp')){throttle=Math.min(1,throttle+dt*.6);$('#throttle').value=throttle*100;}
+  const brake=braking||keys.has('KeyS')||keys.has('ArrowDown');
+  if(brake){throttle=0;$('#throttle').value=0;}
+  speed=Math.max(0,Math.min(16.67,speed+((doors?0:throttle*1.15)-.045-(brake?2.7:0))*dt));
+  const signal=world.tramSignal(distance);
+  const controlled=approachSignal(speed,signal.distance,dt,{acceleration:0});
+  speed=doors?0:controlled.speed;
+  const previous=distance;distance+=doors?0:controlled.travel;world.advanceTram(previous,distance);
+  if(distance>=world.length){distance=world.length;speed=throttle=0;$('#throttle').value=0;$('#trip-status').textContent='Конечная · поездка завершена';}
+  else if(doors)$('#trip-status').textContent='Двери открыты';
+  else if(signal.distance<Math.max(2,speed*speed/5.4+4))$('#trip-status').textContent=`${signal.color==='yellow'?'Жёлтый':'Красный'} сигнал · ${speed<.1?'ожидание зелёного':'автоматическое торможение'}`;
+  else $('#trip-status').textContent=`Пройдено ${(distance/1000).toFixed(2)} км · ${Math.floor(elapsed/60)}:${String(Math.floor(elapsed%60)).padStart(2,'0')}`;
+  $('#speed').textContent=Math.round(speed*3.6);$('#progress').style.width=`${distance/world.length*100}%`;
+ }
+ world?.update(distance,doors);requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
 function openDialog(html){$('#dialog-content').innerHTML=html;$('#dialog').showModal();}$('.dialog-close').onclick=()=>$('#dialog').close();$('#dialog').onclick=e=>{if(e.target===$('#dialog'))$('#dialog').close();};
-$('#help').onclick=()=>openDialog('<div class="eyebrow">ПЕРВЫЙ РЕЙС</div><h2>Ты за управлением.</h2><p>Выбери вагон в депо, затем маршрут и нажми «Отправиться в путь».</p><div class="help-keys"><p><kbd>W / ↑</kbd> Увеличить тягу</p><p><kbd>S / ↓</kbd> Тормозить</p><p><kbd>E</kbd> Открыть или закрыть двери на остановке</p><p><kbd>H</kbd> Трамвайный звонок</p><p><kbd>Пробел</kbd> Пауза</p></div><p>Трамвай следует по выбранным рельсам. Скорость задаёшь ты. Камеры справа: город, за вагоном и вид вперёд. Управлять можно и кнопками под сценой.</p><p class="model-note">Ранняя версия: без пассажиров, светофоров и диспетчерского расписания. Импортированная сцена требует ручного согласования путей.</p>');
+$('#help').onclick=()=>openDialog('<div class="eyebrow">ПЕРВЫЙ РЕЙС</div><h2>Ты за управлением.</h2><p>Выбери вагон в депо, затем маршрут и нажми «Отправиться в путь».</p><div class="help-keys"><p><kbd>W / ↑</kbd> Увеличить тягу</p><p><kbd>S / ↓</kbd> Тормозить</p><p><kbd>E</kbd> Открыть или закрыть двери на остановке</p><p><kbd>H</kbd> Трамвайный звонок</p><p><kbd>Пробел</kbd> Пауза</p></div><p>Трамвай следует по выбранным рельсам. Тягу задаёшь ты. Перед красным и жёлтым сигналом трамвай тормозит автоматически, на зелёный продолжает движение с заданной тягой. Въехав на перекрёсток, завершает проезд. Открытые двери и ручной тормоз запрещают разгон.</p><p>Камеры справа: город, за вагоном и вид вперёд. Управлять можно и кнопками под сценой.</p><p class="model-note">Ранняя версия: без пассажиров и диспетчерского расписания. Светофоры игровые, их расположение и циклы условные. Импортированная сцена требует ручного согласования путей.</p>');
 let chosenStops=[];
 $('#new-route').onclick=()=>{chosenStops=[];openDialog('<div class="eyebrow">ТВОЯ СОБСТВЕННАЯ ЛИНИЯ</div><h2>Куда отправимся?</h2><p>Выбирай остановки по порядку. Маршрут пройдёт по доступным путям.</p><label class="field-label" for="route-name">Название маршрута</label><input id="route-name" maxlength="40" placeholder="Мой любимый маршрут"><div id="route-map"></div><div id="chosen-stops">Выбери не меньше двух остановок</div><div class="dialog-actions"><button class="text-button" id="undo-stop">← Убрать последнюю</button><button class="primary" id="save-route" disabled>Сохранить маршрут ↗</button></div>');drawRouteMap();$('#undo-stop').onclick=()=>{chosenStops.pop();drawRouteMap();};$('#save-route').onclick=()=>{const stops=[...chosenStops];const name=$('#route-name').value.trim()||'Мой маршрут';const r={number:`С${customRoutes.length+1}`,name,stops};customRoutes.push(r);try{localStorage.setItem('kazan-routes-v2',JSON.stringify(customRoutes));}catch{notify('Маршрут сохранён только до закрытия страницы');}chooseRoute(r);$('#dialog').close();notify('Маршрут готов. Можно отправляться!');};};
 function drawRouteMap(){

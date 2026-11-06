@@ -1,3 +1,4 @@
+import {createTraffic} from './traffic.js';
 import {setGeographicNetwork} from './data.js';
 import {createRailNetwork,project} from './rail-network.js';
 import {extractStops} from './stops.js';
@@ -15,7 +16,7 @@ export async function loadGeography(world,ui){
  for(let i=0;i<ui.routes.length;i++){const r=ui.routes[i];r.stops=paths[i];r.name=`${ui.locations[r.stops[0]].name} — ${ui.locations[r.stops.at(-1)].name}`;r.real=true;}
  // Validate before switching away from the fallback scene.
  for(const r of ui.routes)network.path(r.stops,ui.locations);
- setGeographicNetwork(network);world.setGeography(result.group,result.center);world.setStops(extractStops(data.features,network));ui.setNetwork(network);ui.chooseRoute(ui.routes[1]);
+ setGeographicNetwork(network);world.setGeography(result.group,result.center,createTraffic(data.features));world.setStops(extractStops(data.features,network));ui.setNetwork(network);ui.chooseRoute(ui.routes[1]);
  document.querySelector('#map-label').textContent='Казань · OpenStreetMap';
  document.querySelector('.osm-credit').hidden=false;document.querySelector('.osm-credit').textContent='OpenFreeMap · © OpenMapTiles · © OpenStreetMap contributors';
  document.querySelector('#city-info').textContent=`Геометрия OpenStreetMap: ${result.buildings.toLocaleString('ru')} контуров зданий в центре, ${result.roads.toLocaleString('ru')} участков улиц. Пути — по городской сети. Высоты и фасады приблизительные; рельеф плоский. Трассы номеров — предварительные, по опорным точкам, без проверки расписания.`;
