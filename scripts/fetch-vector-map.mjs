@@ -13,7 +13,8 @@ async function tile(x,y,z,layers){const url=tilejson.tiles[0].replace('{x}',x).r
 }}
 }
 async function region(z,bbox,layers){const tasks=[];for(let x=xt(bbox[0],z);x<=xt(bbox[2],z);x++)for(let y=yt(bbox[3],z);y<=yt(bbox[1],z);y++)tasks.push([x,y]);for(let i=0;i<tasks.length;i+=8){await Promise.all(tasks.slice(i,i+8).map(([x,y])=>tile(x,y,z,layers)));console.log('tiles',Math.min(i+8,tasks.length),'/',tasks.length);}}
-await region(14,[49.075,55.765,49.155,55.815],['building','transportation','water','landcover','poi']);
+await region(14,[49.075,55.765,49.155,55.815],['transportation','water','landcover','poi']);
 await region(14,[48.95,55.69,49.31,55.92],['transportation','poi']);
+await region(14,[48.95,55.69,49.31,55.92],['building']);
 await mkdir('public/data',{recursive:true});await writeFile('public/data/kazan-map.geojson',JSON.stringify({type:'FeatureCollection',source:'OpenFreeMap / OpenMapTiles / OpenStreetMap',downloaded:new Date().toISOString(),features}));
 console.log('saved',features.length,'features');console.log('rail classes',Object.entries(features.filter(f=>f.properties.layer==='transportation').reduce((acc,f)=>{const k=f.properties.class+'/'+f.properties.subclass;acc[k]=(acc[k]||0)+1;return acc;},{})));

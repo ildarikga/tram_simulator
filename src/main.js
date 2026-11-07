@@ -77,7 +77,8 @@ function tick(now){
   const previous=distance;distance+=doors?0:controlled.travel;world.advanceTram(previous,distance);
   if(distance>=world.length){distance=world.length;speed=throttle=0;$('#throttle').value=0;$('#trip-status').textContent='Конечная · поездка завершена';}
   else if(doors)$('#trip-status').textContent='Двери открыты';
-  else if(signal.distance<Math.max(2,speed*speed/5.4+4))$('#trip-status').textContent=`${signal.color==='yellow'?'Жёлтый':'Красный'} сигнал · ${speed<.1?'ожидание зелёного':'автоматическое торможение'}`;
+  else if(signal.reason==='deadlock')$('#trip-status').textContent='Взаимная блокировка · трамвай продолжает движение';
+  else if(signal.distance<Math.max(2,speed*speed/5.4+4))$('#trip-status').textContent=signal.reason==='vehicle'?'Машина на пути · ожидание освобождения рельсов':`${signal.color==='yellow'?'Жёлтый':'Красный'} сигнал · ${speed<.1?'ожидание зелёного':'автоматическое торможение'}`;
   else $('#trip-status').textContent=`Пройдено ${(distance/1000).toFixed(2)} км · ${Math.floor(elapsed/60)}:${String(Math.floor(elapsed%60)).padStart(2,'0')}`;
   $('#speed').textContent=Math.round(speed*3.6);$('#progress').style.width=`${distance/world.length*100}%`;
  }

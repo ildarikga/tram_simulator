@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {project} from './rail-network.js';
+import {railClearance,placeBesideRails} from './clearance.js';
 
 export function nearestOnPath(point,points){
  let best={distance:Infinity,along:0,x:point.x,z:point.z,angle:0},along=0;
@@ -14,7 +15,7 @@ export function nearestOnPath(point,points){
  return best;
 }
 export function extractStops(features,network){
- const result=[],seen=new Set();
+ const result=[],seen=new Set(),clear=railClearance(network.lines);
  for(const f of features){if(f.properties.subclass!=='tram_stop'||f.geometry.type!=='Point'||!f.properties.name)continue;
   const point=project(f.geometry.coordinates),name=f.properties['name:ru']||f.properties.name;
   const key=`${name}:${Math.round(point.x)}:${Math.round(point.z)}`;if(seen.has(key))continue;seen.add(key);
@@ -22,8 +23,8 @@ export function extractStops(features,network){
   // Orient the open side toward the tracks; keep platforms outside the swept path.
   let angle=nearest.angle||0;const right={x:-Math.cos(angle),z:Math.sin(angle)};
   if((point.x-nearest.x)*right.x+(point.z-nearest.z)*right.z<0)angle+=Math.PI;
-  const platform=nearest.distance<3.8?{x:nearest.x-Math.cos(angle)*4.8,z:nearest.z+Math.sin(angle)*4.8}:point;
-  result.push({name,...platform,angle});
+  const platform=placeBesideRails(point,angle,clear,{halfLength:5,halfWidth:1.6});
+  if(platform)result.push({name,x:platform.x,z:platform.z,angle:platform.angle});
  }
  return result;
 }

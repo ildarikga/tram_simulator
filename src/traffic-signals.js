@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {project} from './rail-network.js';
+import {railClearance,placeBesideRails} from './clearance.js';
 
 export const signalTiming={green:24,yellow:3,clearance:3};
 export const intersectionRadius=10;
@@ -11,7 +12,7 @@ export function signalColor(signal,axis,time){
  const {green,yellow,clearance}=signalTiming,half=green+yellow+clearance;
  const t=((time+signal.offset)%(2*half)+2*half)%(2*half);
  if(Math.floor(t/half)!==axis)return 'red';
- if(signal.occupants&&[...signal.occupants.values()].some(occupiedAxis=>occupiedAxis!==axis))return 'red';
+ if(signal.occupants&&[...signal.occupants].some(([vehicle,occupiedAxis])=>occupiedAxis!==axis&&![...(signal.deadlockVehicles?.values()||[])].some(exemption=>exemption.axis===axis&&exemption.vehicles.has(vehicle))))return 'red';
  const phase=t%half;return phase<green?'green':phase<green+yellow?'yellow':'red';
 }
 export function signalAxis(signal,dx,dz){return Math.abs(dx*signal.dx+dz*signal.dz)>=Math.SQRT1_2?0:1;}
@@ -76,9 +77,16 @@ export function createRouteSignalControl(points,network){
   start+=Math.hypot(b.x-a.x,b.z-a.z);
  }
  const passed=new Set();let lastDistance=0;
- function reset(){for(const e of events)e.signal.occupants?.delete(e);passed.clear();lastDistance=0;}
+ function reset(){for(const e of events){e.signal.occupants?.delete(e);e.signal.deadlockVehicles?.delete(e);}passed.clear();lastDistance=0;}
  function commit(e){passed.add(e);e.signal.occupants?.set(e,e.axis);}
- return {events,reset,limit(distance,halfLength,time){
+ return {events,reset,setDeadlockVehicles(vehicles,distance,until){
+  for(const e of events){
+   e.signal.deadlockVehicles?.delete(e);
+   if(!vehicles.length||e.at+e.signal.radius<distance||e.at-e.signal.radius>until)continue;
+   if(!e.signal.deadlockVehicles)e.signal.deadlockVehicles=new Map();
+   e.signal.deadlockVehicles.set(e,{axis:e.axis,vehicles:new Set(vehicles)});
+  }
+ },limit(distance,halfLength,time){
   if(distance<lastDistance-.01)reset();lastDistance=distance;
   for(const e of events){
    const stop=e.at-e.signal.radius-halfLength-1;
@@ -103,7 +111,8 @@ export function approachSignal(speed,gap,dt,{acceleration=1.2,deceleration=2.7,m
  return {speed:travel<next*dt||gap<.01?0:next,travel};
 }
 
-export function createSignalLayer(signals){
+export function createSignalLayer(signals,railLines=[]){
+ const clear=railClearance(railLines);
  const group=new T.Group();group.name='Светофоры перекрёстков';
  const count=signals.length*4;
  const housing=new T.InstancedMesh(new T.BoxGeometry(.65,1.95,.48),new T.MeshStandardMaterial({color:'#202a27'}),count);
@@ -115,7 +124,8 @@ export function createSignalLayer(signals){
   const angle=Math.atan2(s.dx,s.dz)+direction*Math.PI/2,dx=Math.sin(angle),dz=Math.cos(angle),index=s.id*4+direction;
   // Put each head beyond the junction, facing its approach. It remains
   // visible from the tram cab when the front is waiting at the stop line.
-  const x=s.x+dx*(s.radius+1)-dz*7,z=s.z+dz*(s.radius+1)+dx*7;
+  const placement=placeBesideRails({x:s.x+dx*(s.radius+1)-dz*7,z:s.z+dz*(s.radius+1)+dx*7},angle,clear);
+  const {x,z}=placement||{x:0,z:0};obj.scale.setScalar(placement?1:0);
   obj.rotation.set(0,angle,0);obj.position.set(x,4.6,z);obj.updateMatrix();housing.setMatrixAt(index,obj.matrix);
   obj.position.y=2;obj.updateMatrix();poles.setMatrixAt(index,obj.matrix);
   for(let j=0;j<3;j++){obj.position.set(x-dx*.3,5.2-j*.6,z-dz*.3);obj.updateMatrix();lamps.setMatrixAt(index*3+j,obj.matrix);}

@@ -19,6 +19,6 @@ export async function loadGeography(world,ui){
  setGeographicNetwork(network);world.setGeography(result.group,result.center,createTraffic(data.features));world.setStops(extractStops(data.features,network));ui.setNetwork(network);ui.chooseRoute(ui.routes[1]);
  document.querySelector('#map-label').textContent='Казань · OpenStreetMap';
  document.querySelector('.osm-credit').hidden=false;document.querySelector('.osm-credit').textContent='OpenFreeMap · © OpenMapTiles · © OpenStreetMap contributors';
- document.querySelector('#city-info').textContent=`Геометрия OpenStreetMap: ${result.buildings.toLocaleString('ru')} контуров зданий в центре, ${result.roads.toLocaleString('ru')} участков улиц. Пути — по городской сети. Высоты и фасады приблизительные; рельеф плоский. Трассы номеров — предварительные, по опорным точкам, без проверки расписания.`;
+ document.querySelector('#city-info').textContent=`Геометрия OpenStreetMap: ${result.buildings.toLocaleString('ru')} объёмных контуров зданий по всей области карты, ${result.roads.toLocaleString('ru')} участков улиц. Пути — по городской сети. Высоты и фасады приблизительные; рельеф плоский. Трассы номеров — предварительные, по опорным точкам, без проверки расписания.`;
  ui.notify('Карта Казани загружена: настоящие улицы, здания и трамвайные пути');
 }

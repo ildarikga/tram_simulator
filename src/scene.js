@@ -5,15 +5,16 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
-import { routePoints, locations } from './data.js';
+import { routePoints, locations, trams } from './data.js';
 import { createStopLayer } from './stops.js';
+import {createOncomingTrams} from './oncoming-trams.js';
 
 const material=(color)=>new T.MeshStandardMaterial({color,roughness:.78});
 const mat = { cream:material('#f2e8d1'), glass:material('#294951'), roof:material('#707b77'), dark:material('#273d3b'), rail:material('#8b928b'), white:material('#fff2d5'), green:material('#477c60') };
 function box(parent,w,h,d,x,y,z,m){const mesh=new T.Mesh(new T.BoxGeometry(w,h,d),m);mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;}
 function cylinder(parent,r1,r2,h,x,y,z,m,n=12){const mesh=new T.Mesh(new T.CylinderGeometry(r1,r2,h,n),m);mesh.position.set(x,y,z);mesh.castShadow=true;parent.add(mesh);return mesh;}
 export function makeTram(spec){
- const g=new T.Group();const paint=material(spec.color);g.name=spec.name;
+ const g=new T.Group();const paint=material(spec.color);g.name=spec.name;g.ownedMaterials=[paint];
  for(let s=0;s<spec.sections;s++){
   const z=(s-(spec.sections-1)/2)*(spec.length+.7),l=spec.length;
   // Forward is local +Z, so the driver's right side is local -X.
@@ -104,9 +105,14 @@ export function createWorld(container,onError){
  for(let x=72;x<110;x+=9)for(let z=-46;z<-14;z+=9)tree(x,z);
  let stopLayer=createStopLayer(locations.map(s=>({...s,angle:0})));city.add(stopLayer.group);
  let tram=null, routeGroup=new T.Group(), segments=[],totalLength=0, mode='orbit',importedCity=null;scene.add(routeGroup);
- let activePoints=[],routeBounds=null,frameTime=performance.now(),traffic=null,tramSignals=null;
+ let activePoints=[],routeBounds=null,frameTime=performance.now(),traffic=null,tramSignals=null,oncoming=null;
  function setTram(spec){if(tram){scene.remove(tram);dispose(tram);}tram=makeTram(spec);scene.add(tram);}
- function dispose(group){group.traverse(o=>{o.geometry?.dispose();if(o.isSprite){o.material.map?.dispose();o.material.dispose();}if(o.isLine2)o.material.dispose();});}
+ function dispose(group){group.traverse(o=>{o.geometry?.dispose();if(o.isSprite){o.material.map?.dispose();o.material.dispose();}if(o.isLine2)o.material.dispose();});group.ownedMaterials?.forEach(m=>m.dispose());}
+ function rebuildOncoming(){
+  if(oncoming){scene.remove(oncoming.group);oncoming.dispose();}
+  oncoming=createOncomingTrams(activePoints,{specs:trams,makeTram,createRouteControl:traffic?points=>traffic.createRouteControl(points):undefined});
+  oncoming.group.visible=city.visible;scene.add(oncoming.group);
+ }
  function fitRoute(){if(!routeBounds)return;const center=routeBounds.getCenter(new T.Vector3()),radius=Math.max(35,routeBounds.getSize(new T.Vector3()).length()/2);const fov=Math.min(camera.fov*Math.PI/180,2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect));const distance=radius/Math.sin(fov/2)*1.22;controls.target.copy(center);camera.position.copy(center).add(new T.Vector3(.48,.9,.75).normalize().multiplyScalar(distance));}
  function setRoute(stops){scene.remove(routeGroup);dispose(routeGroup);routeGroup=new T.Group();scene.add(routeGroup);const points=routePoints(stops);segments=[];totalLength=0;
   activePoints=points;routeBounds=new T.Box3().setFromPoints(points.map(p=>new T.Vector3(p.x,0,p.z)));
@@ -115,9 +121,11 @@ export function createWorld(container,onError){
   const positions=points.flatMap(p=>[p.x,.6,p.z]);
   for(const [width,color,order] of [[9,'#fff9de',80],[5,'#258966',81]]){const geometry=new LineGeometry();geometry.setPositions(positions);const line=new Line2(geometry,new LineMaterial({color,linewidth:width,depthTest:false,depthWrite:false,transparent:true,opacity:.96}));line.renderOrder=order;line.frustumCulled=false;routeGroup.add(line);}
   tramSignals?.reset();tramSignals=traffic?.createRouteControl(points)||null;
+  rebuildOncoming();
   stopLayer.setRoute(points);if(mode==='orbit')fitRoute();
  }
  function update(distance,doors){if(!tram||!segments.length)return;const now=performance.now(),dt=Math.min(.1,(now-frameTime)/1000);frameTime=now;const d=Math.min(totalLength,Math.max(0,distance));const seg=segments.find(s=>d<=s.start+s.length)||segments.at(-1);tram.position.copy(seg.a).lerp(seg.b,(d-seg.start)/seg.length);tram.rotation.y=Math.atan2(seg.b.x-seg.a.x,seg.b.z-seg.a.z);
+  tramSignals?.locate?.(d,tram.userData.frontOffset||12);
   animateTramDoors(tram,doors,dt);
   if(mode==='follow'){const offset=new T.Vector3(-20,14,-27).applyAxisAngle(new T.Vector3(0,1,0),tram.rotation.y);camera.position.lerp(tram.position.clone().add(offset),1-Math.exp(-dt*7));controls.target.lerp(tram.position.clone().add(new T.Vector3(0,2,0)),1-Math.exp(-dt*10));}
   if(mode==='cab'){const front=tram.userData.frontOffset||12;camera.position.copy(tram.position).add(new T.Vector3(0,2.8,front).applyAxisAngle(new T.Vector3(0,1,0),tram.rotation.y));controls.target.copy(tram.position).add(new T.Vector3(0,2.6,front+30).applyAxisAngle(new T.Vector3(0,1,0),tram.rotation.y));}
@@ -126,8 +134,8 @@ export function createWorld(container,onError){
  }
  const resize=()=>{const {width,height}=container.getBoundingClientRect();renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();};new ResizeObserver(resize).observe(container);resize();
  let geographic=false,geoCenter=new T.Vector3();
- return {setTram,setRoute,update,step(dt,paused){if(!paused)traffic?.update(dt);},tramSignal(distance){return tramSignals?.limit(distance,tram?.userData.frontOffset||12,traffic?.time||0)||{distance:Infinity,color:'green'};},advanceTram(from,to){tramSignals?.advance(from,to,tram?.userData.frontOffset||12,traffic?.time||0);},resetSignals(){tramSignals?.reset();},get length(){return totalLength;},get routeStops(){return stopLayer.routeStops;},setStops(stops){city.remove(stopLayer.group);dispose(stopLayer.group);stopLayer=createStopLayer(stops);city.add(stopLayer.group);stopLayer.setRoute(activePoints);},setGeography(group,center,nextTraffic=null){tramSignals?.reset();if(traffic){scene.remove(traffic.group);traffic.dispose();}traffic=nextTraffic;if(traffic)scene.add(traffic.group);tramSignals=traffic?.createRouteControl(activePoints)||null;scene.remove(city);dispose(city);city=group;scene.add(city);geographic=true;geoCenter.set(center.x,0,center.z);scene.fog.near=8000;scene.fog.far=28000;camera.near=10;camera.far=40000;camera.updateProjectionMatrix();controls.minDistance=80;controls.maxDistance=40000;controls.target.copy(geoCenter);camera.position.copy(geoCenter).add(new T.Vector3(1900,2200,2300));sun.castShadow=false;renderer.toneMappingExposure=.95;},setCamera(value){mode=value;controls.enabled=value==='orbit';if(geographic){camera.near=value==='orbit'?10:.1;camera.far=value==='orbit'?40000:8000;camera.updateProjectionMatrix();}if(value==='orbit')fitRoute();},setNight(night){scene.background.set(night?'#1c3444':'#d5e2db');scene.fog.color.copy(scene.background);sun.intensity=night?.35:3.3;renderer.toneMappingExposure=night?.7:geographic?.95:1.25;},
-  async importModel(file,type){const url=URL.createObjectURL(file);try{const result=await new GLTFLoader().loadAsync(url);const obj=result.scene;const bounds=new T.Box3().setFromObject(obj),size=bounds.getSize(new T.Vector3());const max=Math.max(size.x,size.y,size.z);if(!max)throw Error('Модель пустая');obj.scale.setScalar((type==='tram'?20:310)/max);const normalized=new T.Box3().setFromObject(obj);const center=normalized.getCenter(new T.Vector3());obj.position.set(-center.x,-normalized.min.y,-center.z);const wrapper=new T.Group();wrapper.add(obj);if(type==='tram'){scene.remove(tram);dispose(tram);tram=wrapper;scene.add(tram);}else{if(importedCity){scene.remove(importedCity);dispose(importedCity);}city.visible=false;if(traffic)traffic.group.visible=false;importedCity=wrapper;scene.add(wrapper);}}finally{URL.revokeObjectURL(url);}},
+ return {setTram,setRoute,update,step(dt,paused){if(!paused){traffic?.update(dt);oncoming?.update(dt,traffic?.time||0);}},tramSignal(distance){return tramSignals?.limit(distance,tram?.userData.frontOffset||12,traffic?.time||0)||{distance:Infinity,color:'green'};},advanceTram(from,to){tramSignals?.advance(from,to,tram?.userData.frontOffset||12,traffic?.time||0);},resetSignals(){tramSignals?.reset();},get length(){return totalLength;},get routeStops(){return stopLayer.routeStops;},setStops(stops){city.remove(stopLayer.group);dispose(stopLayer.group);stopLayer=createStopLayer(stops);city.add(stopLayer.group);stopLayer.setRoute(activePoints);},setGeography(group,center,nextTraffic=null){tramSignals?.reset();if(traffic){scene.remove(traffic.group);traffic.dispose();}traffic=nextTraffic;if(traffic)scene.add(traffic.group);tramSignals=traffic?.createRouteControl(activePoints)||null;scene.remove(city);dispose(city);city=group;scene.add(city);rebuildOncoming();geographic=true;geoCenter.set(center.x,0,center.z);scene.fog.near=8000;scene.fog.far=28000;camera.near=10;camera.far=40000;camera.updateProjectionMatrix();controls.minDistance=80;controls.maxDistance=40000;controls.target.copy(geoCenter);camera.position.copy(geoCenter).add(new T.Vector3(1900,2200,2300));sun.castShadow=false;renderer.toneMappingExposure=.95;},setCamera(value){mode=value;controls.enabled=value==='orbit';if(geographic){camera.near=value==='orbit'?10:.1;camera.far=value==='orbit'?40000:8000;camera.updateProjectionMatrix();}if(value==='orbit')fitRoute();},setNight(night){scene.background.set(night?'#1c3444':'#d5e2db');scene.fog.color.copy(scene.background);sun.intensity=night?.35:3.3;renderer.toneMappingExposure=night?.7:geographic?.95:1.25;},
+  async importModel(file,type){const url=URL.createObjectURL(file);try{const result=await new GLTFLoader().loadAsync(url);const obj=result.scene;const bounds=new T.Box3().setFromObject(obj),size=bounds.getSize(new T.Vector3());const max=Math.max(size.x,size.y,size.z);if(!max)throw Error('Модель пустая');obj.scale.setScalar((type==='tram'?20:310)/max);const normalized=new T.Box3().setFromObject(obj);const center=normalized.getCenter(new T.Vector3());obj.position.set(-center.x,-normalized.min.y,-center.z);const wrapper=new T.Group();wrapper.add(obj);if(type==='tram'){scene.remove(tram);dispose(tram);tram=wrapper;scene.add(tram);}else{if(importedCity){scene.remove(importedCity);dispose(importedCity);}city.visible=false;if(oncoming)oncoming.group.visible=false;if(traffic)traffic.group.visible=false;importedCity=wrapper;scene.add(wrapper);}}finally{URL.revokeObjectURL(url);}},
   async exportModel(type){const data=await new GLTFExporter().parseAsync(type==='tram'?tram:city,{binary:true,onlyVisible:true});const url=URL.createObjectURL(new Blob([data],{type:'model/gltf-binary'}));const a=document.createElement('a');a.href=url;a.download=type==='tram'?'kazan-tram.glb':'kazan-stylized.glb';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
  };
 }

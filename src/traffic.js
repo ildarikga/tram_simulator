@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {project} from './rail-network.js';
+import {createTramPriority} from './tram-priority.js';
 import {createSignalNetwork,createSignalLayer,createRouteSignalControl,signalColor,approachSignal} from './traffic-signals.js';
 
 export const roadWidths={motorway:17,trunk:14,primary:12,secondary:10,tertiary:8,minor:6,service:4,path:2};
@@ -75,7 +76,8 @@ function vehicleGeometry(spec){
 
 export function createTraffic(features,{count=6000,random=Math.random,initialTime=0}={}){
  const edges=createRoadGraph(features),group=new T.Group();group.name='Дорожный трафик';
- const signalNetwork=createSignalNetwork(edges,features),signalLayer=createSignalLayer(signalNetwork.signals);group.add(signalLayer.group);let time=initialTime;
+ const railLines=features.filter(f=>f.properties.subclass==='tram'&&f.properties.layer==='transportation').flatMap(f=>(f.geometry.type==='LineString'?[f.geometry.coordinates]:f.geometry.coordinates).map(line=>line.map(project)));
+ const signalNetwork=createSignalNetwork(edges,features),signalLayer=createSignalLayer(signalNetwork.signals,railLines);group.add(signalLayer.group);let time=initialTime;
  const vehicles=[],batches=[],cumulative=[];let total=0;
  for(const edge of edges){total+=edge.length;cumulative.push(total);}
  const pickEdge=()=>{const target=random()*total;let lo=0,hi=edges.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(cumulative[mid]<target)lo=mid+1;else hi=mid;}return edges[lo];};
@@ -99,6 +101,21 @@ export function createTraffic(features,{count=6000,random=Math.random,initialTim
   batches.push({meshes,members});
  }
  const transform=new T.Object3D();
+ function footprint(v,edge=v.edge,distance=v.distance){
+  const spec=types[v.type],dx=(edge.to.x-edge.from.x)/edge.length,dz=(edge.to.z-edge.from.z)/edge.length;
+  const lane=Math.min(edge.width/4,edge.width/2-spec.width/2-.15);
+  return {id:v,speed:v.velocity,x:edge.from.x+dx*distance-dz*lane,z:edge.from.z+dz*distance+dx*lane,dx,dz,halfLength:spec.length/2,halfWidth:spec.width/2};
+ }
+ let carBodies=[];
+ const priority=createTramPriority(()=>carBodies);
+ function carPath(v){
+  let offset=0;const result=[];
+  for(const edge of [v.edge,...v.planned]){
+   const at=result.length?0:v.distance,travel=Math.min(edge.length-at,65-offset);
+   result.push({...footprint(v,edge,at),offset,travel});offset+=travel;if(offset>=65)break;
+  }
+  return result;
+ }
  function plan(v){
   let ahead=v.edge.length-v.distance,edge=v.edge;
   for(const e of v.planned){ahead+=e.length;edge=e;}
@@ -132,11 +149,12 @@ export function createTraffic(features,{count=6000,random=Math.random,initialTim
    const moves=new Map();
    for(const v of vehicles){
     const half=types[v.type].length/2,events=eventsAhead(v);let gap=Infinity;
+    const crossing=priority.carGap(footprint(v),carPath(v));
     for(const e of events){
      if(e.at < -e.signal.radius-half||v.committed.has(e.signal))continue;
      const stop=e.at-e.signal.radius-half-1;
      if(stop<-.05){v.committed.set(e.signal,e.at+e.signal.radius+half);e.signal.occupants.set(v,e.axis);continue;}
-     if(signalColor(e.signal,e.axis,time)!=='green')gap=Math.min(gap,Math.max(0,stop));
+     if(!crossing.clearing&&signalColor(e.signal,e.axis,time)!=='green')gap=Math.min(gap,Math.max(0,stop));
     }
     // Queue behind a vehicle on this lane or on the planned continuation.
     let start=-v.distance;
@@ -148,6 +166,7 @@ export function createTraffic(features,{count=6000,random=Math.random,initialTim
      if(leader&&leader!==v){gap=Math.min(gap,Math.max(0,start+leader.distance-half-types[leader.type].length/2-2));break;}
      start+=edge.length;
     }
+    gap=Math.min(gap,crossing.gap);
     const move=approachSignal(v.velocity,gap,dt,{maxSpeed:v.edge.speed*v.speed,acceleration:1.6,deceleration:3});
     moves.set(v,move);
     for(const e of events){const stop=e.at-e.signal.radius-half-1;if(stop>=-.05&&move.travel>stop&&signalColor(e.signal,e.axis,time)==='green'){v.committed.set(e.signal,e.at+e.signal.radius+half);e.signal.occupants.set(v,e.axis);}}
@@ -161,6 +180,7 @@ export function createTraffic(features,{count=6000,random=Math.random,initialTim
     }
    }
   }
+  carBodies=vehicles.map(v=>footprint(v));
   for(const {members,meshes} of batches){
    members.forEach((v,i)=>{
     const e=v.edge,dx=(e.to.x-e.from.x)/e.length,dz=(e.to.z-e.from.z)/e.length;
@@ -174,5 +194,5 @@ export function createTraffic(features,{count=6000,random=Math.random,initialTim
  }
  function dispose(){signalLayer.dispose();for(const {meshes} of batches)for(const mesh of meshes){mesh.geometry.dispose();mesh.dispose();}Object.values(materials).forEach(m=>m.dispose());group.clear();}
  update(0);
- return {group,update,dispose,createRouteControl(points){return createRouteSignalControl(points,signalNetwork);},get time(){return time;},get signalCount(){return signalNetwork.signals.length;},get count(){return vehicles.length;}};
+ return {group,update,dispose,createRouteControl(points){return priority.wrap(points,createRouteSignalControl(points,signalNetwork));},get time(){return time;},get signalCount(){return signalNetwork.signals.length;},get count(){return vehicles.length;}};
 }
