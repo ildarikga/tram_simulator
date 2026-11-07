@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "vite build",
+    "build:pages": "vite build --base=/tram_simulator/",
     "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "test": "playwright test",
     "fetch-map": "node scripts/fetch-vector-map.mjs"

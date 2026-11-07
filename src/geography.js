@@ -3,7 +3,7 @@ import {setGeographicNetwork} from './data.js';
 import {createRailNetwork,project} from './rail-network.js';
 import {extractStops} from './stops.js';
 export async function loadGeography(world,ui){
- const response=await fetch('/data/kazan-map.geojson');
+ const response=await fetch(`${import.meta.env.BASE_URL}data/kazan-map.geojson`);
  if(!response.ok)return;
  const data=await response.json();if(!data.features?.length)return;
  const {buildGeographicCity}=await import('./osm-city.js');

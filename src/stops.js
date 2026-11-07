@@ -1,3 +1,4 @@
+import {createPassengers} from './passengers.js';
 import * as T from 'three';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {project} from './rail-network.js';
@@ -72,8 +73,9 @@ export function createStopLayer(stops){
   records.push({...stop,label,marker,active:false,along:0});
  }
  for(const [material,geometries] of batches){const mesh=new T.Mesh(mergeGeometries(geometries),material);mesh.receiveShadow=true;mesh.castShadow=true;group.add(mesh);geometries.forEach(g=>g.dispose());}
+ const passengers=createPassengers(stops);group.add(passengers.group);group.ownedMaterials=passengers.group.ownedMaterials;
  let routeStops=[];
- return {group,get routeStops(){return routeStops;},setRoute(points){
+ return {group,passengers,get routeStops(){return routeStops;},setRoute(points){
   for(const record of records){const match=nearestOnPath(record,points);record.active=match.distance<38;record.along=match.along;}
   routeStops=[];for(const r of records.filter(r=>r.active).sort((a,b)=>a.along-b.along)){if(!routeStops.some(s=>s.name===r.name&&Math.abs(s.along-r.along)<100))routeStops.push({name:r.name,along:r.along});}
  },update(camera,width,height,mode){
