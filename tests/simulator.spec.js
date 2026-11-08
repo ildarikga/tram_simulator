@@ -4,7 +4,10 @@ test('real map, vehicle selection and driving controls',async({page})=>{
  await page.goto('/');await expect(page.locator('#map-label')).toContainText('OpenStreetMap',{timeout:45000});
  await page.locator('[data-tram="retro"]').click();await expect(page.locator('#selected-name')).toHaveText('Ретро');
  await page.locator('#start').click();await expect(page.locator('.drive-hud')).toBeVisible();
- await page.locator('#doors').click();await page.locator('#throttle').fill('100');await page.waitForTimeout(300);await expect(page.locator('#speed')).toHaveText('0');await page.locator('#doors').click();
+ await page.locator('#doors').click();await page.locator('#throttle').fill('100');await page.waitForTimeout(300);await expect(page.locator('#speed')).toHaveText('0');
+ await expect(page.locator('#trip-status')).toContainText('посадка и высадка',{timeout:15000});
+ await expect(page.locator('#trip-status')).toContainText('Двери открыты · в салоне',{timeout:20000});
+ await page.locator('#doors').click();await expect(page.locator('#doors')).toContainText('Открыть двери');
  await page.locator('#throttle').fill('100');await expect.poll(async()=>Number(await page.locator('#speed').innerText()),{timeout:10000}).toBeGreaterThan(3);
  await page.locator('#doors').click();await expect(page.locator('#toast')).toContainText('останови');
  await page.locator('#pause').click();const speed=await page.locator('#speed').innerText();await page.waitForTimeout(350);await expect(page.locator('#speed')).toHaveText(speed);
@@ -24,6 +27,20 @@ test('mobile has no horizontal overflow',async({page})=>{
  await page.setViewportSize({width:390,height:844});await page.goto('/');await expect(page.locator('#map-label')).toContainText('OpenStreetMap',{timeout:45000});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
  await page.screenshot({path:'test-results/mobile.png',fullPage:true});
+});
+test('route 5 station district loads and is visible from the cab',async({page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');await expect(page.locator('#map-label')).toContainText('OpenStreetMap',{timeout:45000});
+ await expect(page.locator('#city-info')).toContainText('Фасады вдоль всех маршрутов');
+ await page.locator('#route-select').selectOption('4');await page.locator('#start').click();
+ await page.locator('[data-camera="cab"]').click();await page.waitForTimeout(500);
+ await page.screenshot({path:'test-results/route-5-cab.png',fullPage:true});
+ await page.locator('#day-night').click();await page.waitForTimeout(200);
+ await page.screenshot({path:'test-results/route-5-evening.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+ await page.screenshot({path:'test-results/route-5-mobile.png',fullPage:true});
+ expect(errors).toEqual([]);
 });
 test('city overview shows selected route and named real stops',async({page})=>{
  await page.goto('/');await expect(page.locator('#map-label')).toContainText('OpenStreetMap',{timeout:45000});
