@@ -41,6 +41,26 @@ New-NetFirewallRule -Name "TramSimulator-LAN-5173" -DisplayName "Tram Simulator 
 
 Репозиторий: https://github.com/ildarikga/tram_simulator. После первого успешного деплоя сайт будет доступен по адресу https://ildarikga.github.io/tram_simulator/.
 
+### SSH-ключ для публикации
+
+На этом Windows-компьютере для доступа к `git@github.com:ildarikga/tram_simulator.git` используй выделенный ключ из навыка `safe-ssh-operations`: `D:\myprojects\ssh-aikey\ChatGPT_DevOps_access_ed25519`. Ключ передаётся SSH напрямую через `-i`; его содержимое остаётся в исходном файле. Копирование, преобразование и добавление ключа в агент или репозиторий не требуются.
+
+Проверенная команда для PowerShell из каталога проекта (используется OpenSSH, поставляемый с Git for Windows):
+
+```powershell
+New-Item -ItemType Directory -Force -Path test-results | Out-Null
+$publishSsh = 'C:/Progra~1/Git/usr/bin/ssh.exe -i D:/myprojects/ssh-aikey/ChatGPT_DevOps_access_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=D:/Karim_projects/tram_simulator/test-results/github-known-hosts -o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o ProxyCommand=none -o ProxyJump=none'
+git -c "core.sshCommand=$publishSsh" ls-remote origin refs/heads/master
+git -c "core.sshCommand=$publishSsh" fetch origin
+git -c "core.sshCommand=$publishSsh" push origin master
+```
+
+Проверяй успешный код завершения каждой команды перед следующей. `-c` задаёт SSH-команду только на один запуск Git, без изменения постоянных настроек. Новый ключ сервера записывается в исключённый из Git файл `test-results/github-known-hosts`. Если уже известный ключ сервера изменился, остановись и проверь отпечаток через независимый канал; опубликованные отпечатки GitHub находятся в [официальной документации](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints). После очистки `test-results/` файл известных серверов создастся заново при подключении.
+
+Успех `ls-remote` подтверждает чтение репозитория. Публикация считается завершённой после успешного `push`, сборки и деплоя того же коммита, а также проверки сайта — см. [«Что означает „запушь“»](#что-означает-запушь).
+
+### Сборка и деплой
+
 В настройках репозитория открой **Settings → Pages → Build and deployment → Source** и выбери **GitHub Actions**. Workflow [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml) устанавливает зависимости через `npm ci`, собирает сайт на Node.js 24 и публикует `dist/` при пуше в `master` или `main`. Его также можно запустить вручную из вкладки **Actions**. Для деплоя используется встроенный `GITHUB_TOKEN`; SSH-ключ нужен только для отправки локальных коммитов в репозиторий.
 
 Проверка такой же сборки локально:
